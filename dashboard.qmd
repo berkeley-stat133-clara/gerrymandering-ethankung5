@@ -1,5 +1,112 @@
 ---
 title: Dashboard
-format: dashboard
+format: html
 ---
+
+```{r}
+library(tidyverse)
+
+votes <- read_csv("data/cleaned_g24_sov_by_svprec.csv")
+
+current_results <- votes |>
+  filter(!is.na(cddist)) |>
+  group_by(cddist) |>
+  summarise(
+    dem_votes = sum(demvote, na.rm = TRUE),
+    rep_votes = sum(repvote, na.rm = TRUE),
+    .groups   = "drop"
+  ) |>
+  mutate(
+    total_votes = dem_votes + rep_votes,
+    dem_share   = dem_votes / total_votes,
+    winner      = if_else(dem_votes > rep_votes, "DEM", "REP"),
+    district    = sprintf("%02d", cddist)
+  )
+
+ab604_results <- read_csv("data/ab604_district_results_2024_simulated.csv") |>
+  mutate(
+    district = AB604_DIST,
+    winner   = if_else(dem_votes > rep_votes, "DEM", "REP")
+  )
+
+mean_median_score <- function(vshare) {
+  mean(vshare, na.rm = TRUE) - median(vshare, na.rm = TRUE)
+}
+
+wasted_votes <- function(dem, rep) {
+  total <- dem + rep
+  threshold <- floor(total / 2) + 1
+  dem_wasted <- if_else(dem > rep, dem - threshold, dem)
+  rep_wasted <- if_else(rep > dem, rep - threshold, rep)
+  tibble(dem_wasted, rep_wasted, total)
+}
+
+eff_gap <- function(dem, rep) {
+  w <- wasted_votes(dem, rep)
+  (sum(w$rep_wasted) - sum(w$dem_wasted)) / sum(w$total)
+}
+
+current_seats <- current_results |>
+  count(winner, name = "n")
+
+current_mm <- mean_median_score(current_results$dem_share)
+current_eg <- eff_gap(current_results$dem_votes, current_results$rep_votes)
+
+ab604_seats <- ab604_results |>
+  count(winner, name = "n")
+
+ab604_mm <- mean_median_score(ab604_results$dem_share)
+ab604_eg <- eff_gap(ab604_results$dem_votes, ab604_results$rep_votes)
+
+metrics_summary <- tibble(
+  map = c("2024 map", "AB 604 map"),
+  dem_seats = c(
+    current_seats$n[current_seats$winner == "DEM"],
+    ab604_seats$n[ab604_seats$winner == "DEM"]
+  ),
+  rep_seats = c(
+    current_seats$n[current_seats$winner == "REP"],
+    ab604_seats$n[ab604_seats$winner == "REP"]
+  ),
+  mean_median = c(current_mm, ab604_mm),
+  efficiency_gap = c(current_eg, ab604_eg)
+)
+
+metrics_summary
+
+seat_df <- metrics_summary |>
+  pivot_longer(c(dem_seats, rep_seats),
+               names_to = "party", values_to = "seats") |>
+  mutate(party = if_else(party == "dem_seats", "Democrats", "Republicans"))
+
+ggplot(seat_df, aes(x = map, y = seats, fill = party)) +
+  geom_col(position = "dodge") +
+  labs(x = NULL, y = "Seats", title = "Seats by party and map") +
+  theme_minimal()
+
+ggplot(current_results, aes(x = dem_share)) +
+  geom_histogram(bins = 20) +
+  labs(title = "2024 map: Democratic vote share", x = "Dem share", y = "Districts") +
+  theme_minimal()
+
+ggplot(ab604_results, aes(x = dem_share)) +
+  geom_histogram(bins = 20) +
+  labs(title = "AB 604 map: Democratic vote share", x = "Dem share", y = "Districts") +
+  theme_minimal()
+
+
+```
+
+Data source.
+We use 2024 election results from the California Statewide Database. For the new map, we also use SR precinct data, a precinct-to-block file, and a block-to-AB 604 district file.
+
+Data cleaning.
+For the 2024 map, we sum Democratic and Republican votes from SV precincts up to each existing congressional district. For AB 604, we first allocate SR precinct votes to blocks using PCTSRPREC, then sum those block votes to the new districts.
+
+Estimation.
+For both maps, we compute three statistics: seats won by each party, the mean–median score, and the efficiency gap. These are shown side-by-side so it’s easy to compare the current map and AB 604.
+
+Caveats.
+All results are based on one election (2024) and assumptions about how votes are distributed inside precincts. They give a rough sense of partisan bias but are not a perfect measure of gerrymandering.
+
 

@@ -1,11 +1,186 @@
 ---
 title: Gerrymandering Metrics
-format: typst
+format: pdf
 ---
 
 ### 2024 Election Results and the 2024 District Map
 
+```{r}
+library(tidyverse)
 
+votes <- read_csv("data/cleaned_g24_sov_by_svprec.csv")
+
+```
+```{r}
+district_votes <- votes %>%
+  filter(!is.na(cddist)) %>%
+  group_by(cddist) %>%
+  summarise(
+    total_dem = sum(demvote, na.rm = TRUE),
+    total_rep = sum(repvote, na.rm = TRUE)
+  ) %>%
+  mutate(
+    total = total_dem + total_rep,
+    share_dem = total_dem / total
+  )
+
+```
+
+```{r}
+mean_median_score <- mean(district_votes$share_dem) - median(district_votes$share_dem)
+mean_median_score
+
+```
+```{r}
+efficiency_gap <- function(dem_votes, rep_votes) {
+  total_votes <- dem_votes + rep_votes
+  dem_wasted <- ifelse(dem_votes > rep_votes,
+                       dem_votes - total_votes / 2,
+                       dem_votes)
+  rep_wasted <- ifelse(rep_votes > dem_votes,
+                       rep_votes - total_votes / 2,
+                       rep_votes)
+  sum(dem_wasted - rep_wasted) / sum(total_votes)
+}
+
+```
+
+```{r}
+eg <- efficiency_gap(district_votes$total_dem, district_votes$total_rep)
+eg
+
+```
 
 ### 2024 Election Results and the proposed 2025 District Map
 
+```{r}
+library(tidyverse)
+
+sr_votes_raw <- read_csv("data/state_g24_sov_data_by_g24_srprec.csv")
+sr_blk       <- read_csv("data/state_g24_sr_blk_map.csv")
+ab604        <- read_csv("data/ab604.csv")
+
+names(sr_votes_raw)
+names(sr_blk)
+names(ab604)
+
+
+```
+```{r}
+ab604 <- read_csv(
+  "data/ab604.csv",
+  col_names = c("BLOCK_KEY", "AB604_DIST")
+)
+
+names(ab604)
+
+
+```
+```{r}
+library(tidyverse)
+
+sr_votes_raw <- read_csv("data/state_g24_sov_data_by_g24_srprec.csv")
+sr_blk       <- read_csv("data/state_g24_sr_blk_map.csv")
+ab604        <- read_csv("data/ab604.csv", col_names = c("BLOCK_KEY", "AB604_DIST"))
+
+sr_votes_cng <- sr_votes_raw |>
+  mutate(
+    CNGDEM01_num = as.numeric(CNGDEM01),
+    CNGDEM02_num = as.numeric(CNGDEM02),
+    CNGREP01_num = as.numeric(CNGREP01),
+    CNGREP02_num = as.numeric(CNGREP02),
+    dem_cng = replace_na(CNGDEM01_num, 0) + replace_na(CNGDEM02_num, 0),
+    rep_cng = replace_na(CNGREP01_num, 0) + replace_na(CNGREP02_num, 0)
+  ) |>
+  select(SRPREC_KEY, dem_cng, rep_cng)
+
+sr_blk_votes <- sr_blk |>
+  left_join(sr_votes_cng, by = "SRPREC_KEY") |>
+  mutate(
+    frac_sr   = PCTSRPREC / 100,
+    dem_block = dem_cng * frac_sr,
+    rep_block = rep_cng * frac_sr
+  )
+
+sr_blk_votes_cd <- sr_blk_votes |>
+  left_join(ab604, by = "BLOCK_KEY")
+
+ab604_district_results <- sr_blk_votes_cd |>
+  group_by(AB604_DIST) |>
+  summarise(
+    dem_votes = sum(dem_block, na.rm = TRUE),
+    rep_votes = sum(rep_block, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    total_votes = dem_votes + rep_votes,
+    dem_share   = dem_votes / total_votes,
+    rep_share   = rep_votes / total_votes,
+    winner      = if_else(dem_votes > rep_votes, "DEM", "REP")
+  )
+
+write_csv(ab604_district_results, "data/ab604_district_results_2024_simulated.csv")
+
+ab604_district_results
+
+ab604_district_results |>
+  count(winner)
+
+```
+
+```{r}
+library(tidyverse)
+
+ab604_results <- read_csv("data/ab604_district_results_2024_simulated.csv")
+
+mean_median_score <- function(vshare) {
+  mean(vshare, na.rm = TRUE) - median(vshare, na.rm = TRUE)
+}
+
+wasted_votes <- function(dem, rep) {
+  total <- dem + rep
+  threshold <- floor(total / 2) + 1
+
+  dem_wasted <- if_else(dem > rep, dem - threshold, dem)
+  rep_wasted <- if_else(rep > dem, rep - threshold, rep)
+
+  tibble(dem_wasted, rep_wasted, total)
+}
+
+ab604_seats <- ab604_results |>
+  count(winner)
+
+ab604_mm <- mean_median_score(ab604_results$dem_share)
+
+w_ab604 <- wasted_votes(ab604_results$dem_votes, ab604_results$rep_votes)
+
+ab604_eg <- (sum(w_ab604$rep_wasted) - sum(w_ab604$dem_wasted)) /
+            sum(w_ab604$total)
+
+ab604_summary <- tibble(
+  map            = "AB 604",
+  dem_seats      = ab604_seats$n[ab604_seats$winner == "DEM"],
+  rep_seats      = ab604_seats$n[ab604_seats$winner == "REP"],
+  mean_median    = ab604_mm,
+  efficiency_gap = ab604_eg
+)
+
+ab604_summary
+
+
+```
+
+Seats:
+Under the current map, Democrats win CURRENT_DEM seats and Republicans win CURRENT_REP.
+Under the AB 604 map, Democrats would win 46 seats and Republicans 7.
+So AB 604 still gives Democrats most of the seats, but it changes the exact split compared to the current map.
+
+Mean–median:
+For the current map, the mean–median score is about CURRENT_MM.
+For the AB 604 map, it is about 0.028.
+Both numbers are fairly close to zero, so neither map looks extremely skewed by this measure.
+
+Efficiency gap:
+For the current map, the efficiency gap is about CURRENT_EG.
+For the AB 604 map, the efficiency gap is about 0.179, which favors Republicans.
+That means, compared to the current map, AB 604 wastes more Democratic votes and slightly increases the built-in advantage for Republicans.

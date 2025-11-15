@@ -1,28 +1,64 @@
 ---
 title: Exploratory Data Analysis
-format: typst
+format: pdf
 ---
+
+```{r}
+library(tidyverse)
+votes <- read_csv("data/cleaned_g24_sov_by_svprec.csv") |>
+mutate(
+total_votes = demvote + repvote
+)
+```
+
 
 ### Question 1
 
-Put your question here.
+Which precincts had the closest races between Democratic and Republican votes?
 
 ### Answer 1
 
-Put your answer here.
+```{r}
+closest_races <- votes |>
+mutate(margin = abs(demvote - repvote)) |>
+arrange(margin) |>
+select(svprec, demvote, repvote, margin) |>
+slice_head(n = 10)
+
+closest_races
+
+```
+
 
 ### Question 2
 
-Put your question here.
+Which precincts had the highest total voter turnout?
 
 ### Answer 2
 
-Put your answer here.
+```{r}
+highest_turnout <- votes |>
+arrange(desc(total_votes)) |>
+select(svprec, total_votes, demvote, repvote) |>
+slice_head(n = 10)
+highest_turnout
+```
 
 ### Question 3
 
-Put your question here.
+Which party won the most precincts?
 
 ### Answer 3
 
-Put your answer here.
+```{r}
+precinct_winners <- votes |>
+mutate(
+winner = case_when(
+demvote > repvote ~ "Democrat",
+repvote > demvote ~ "Republican",
+TRUE ~ "Tie"
+)
+) |>
+count(winner)
+precinct_winners
+```

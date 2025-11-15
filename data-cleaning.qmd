@@ -1,5 +1,32 @@
 ---
 title: Data Cleaning
-format: typst
+format: pdf
 ---
+
+In November 2025, California will vote on Proposition 50, which would change the state’s congressional district map. To see how this might affect elections, we use 2024 voting data, precinct maps, and the proposed new map from the California Secretary of State and the Statewide Database. This lets us see how the 2024 results would look under the new districts.
+
+
+```{r}
+library(tidyverse)
+
+raw_df <- read_csv("data/g24_sov_by_g24_svprec.csv")
+
+cleaned_df <- raw_df %>%
+  rename_with(~ str_replace_all(., " ", "_")) %>%
+  rename_with(tolower) %>%
+  mutate(total_votes = as.numeric(totvote),
+         demvote = as.numeric(cngdem01),
+         repvote = as.numeric(cngrep01)) %>%
+  mutate(across(where(is.character), str_trim)) %>%
+  filter(total_votes > 0)
+
+glimpse(cleaned_df)
+summary(cleaned_df$demvote)
+summary(cleaned_df$repvote)
+
+write_csv(cleaned_df, "data/cleaned_g24_sov_by_svprec.csv")
+
+
+```
+
 
